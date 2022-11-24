@@ -42,6 +42,7 @@
 /* #include <mach/irqs.h> */
 #include <linux/dma-mapping.h>
 #include <linux/compat.h>
+#include <linux/display_state.h>
 #ifdef CONFIG_MTK_AEE_FEATURE
 #  include "mt-plat/aee.h"
 #endif
@@ -161,6 +162,11 @@ do {								\
 /* ------------------------------------------------------------ */
 /* local variables */
 /* ------------------------------------------------------------ */
+bool display_on = true;
+bool is_display_on()
+{
+	return display_on;
+}
 struct notifier_block pm_nb;
 unsigned int EnableVSyncLog;
 unsigned long fb_mva;
@@ -326,6 +332,8 @@ static int mtkfb_blank(int blank_mode, struct fb_info *info)
 		primary_display_set_power_mode(FB_RESUME);
 		mtkfb_late_resume();
 
+		display_on = true;
+
 		debug_print_power_mode_check(prev_pm, FB_RESUME);
 		break;
 	case FB_BLANK_VSYNC_SUSPEND:
@@ -341,6 +349,8 @@ static int mtkfb_blank(int blank_mode, struct fb_info *info)
 
 		primary_display_set_power_mode(FB_SUSPEND);
 		mtkfb_early_suspend();
+
+		display_on = false;
 
 		debug_print_power_mode_check(prev_pm, FB_SUSPEND);
 

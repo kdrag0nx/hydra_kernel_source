@@ -480,15 +480,6 @@ extern int func_ptr_is_kernel_text(void *ptr);
 
 unsigned long int_sqrt(unsigned long);
 
-#if BITS_PER_LONG < 64
-u32 int_sqrt64(u64 x);
-#else
-static inline u32 int_sqrt64(u64 x)
-{
-	return (u32)int_sqrt(x);
-}
-#endif
-
 extern void bust_spinlocks(int yes);
 extern int oops_in_progress;		/* If set, an oops, panic(), BUG() or die() is in progress */
 extern int panic_timeout;
@@ -591,7 +582,7 @@ static inline char *hex_byte_pack_upper(char *buf, u8 byte)
 	return buf;
 }
 
-extern int hex_to_bin(unsigned char ch);
+extern int hex_to_bin(char ch);
 extern int __must_check hex2bin(u8 *dst, const char *src, size_t count);
 extern char *bin2hex(char *dst, const void *src, size_t count);
 
@@ -673,9 +664,6 @@ do {									\
  * let gcc optimize the rest.
  */
 
-#ifdef CONFIG_DISABLE_TRACE_PRINTK
-void trace_printk(const char *fmt, ...);
-#else
 #define trace_printk(fmt, ...)				\
 do {							\
 	char _______STR[] = __stringify((__VA_ARGS__));	\
@@ -698,7 +686,6 @@ do {									\
 	else								\
 		__trace_printk(_THIS_IP_, fmt, ##args);			\
 } while (0)
-#endif
 
 extern __printf(2, 3)
 int __trace_bprintk(unsigned long ip, const char *fmt, ...);

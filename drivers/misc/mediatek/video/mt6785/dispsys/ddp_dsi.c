@@ -5959,6 +5959,7 @@ int ddp_dsi_power_off(enum DISP_MODULE_ENUM module, void *cmdq_handle)
 #endif
 
 	DISPFUNC();
+
 	if (!_is_power_on_status(module))
 		return DSI_STATUS_OK;
 
@@ -5982,6 +5983,7 @@ int ddp_dsi_power_off(enum DISP_MODULE_ENUM module, void *cmdq_handle)
 	}
 #endif
 	_set_power_on_status(module, 0);
+
 	return DSI_STATUS_OK;
 }
 
