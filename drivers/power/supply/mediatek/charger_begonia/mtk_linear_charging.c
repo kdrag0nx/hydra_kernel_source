@@ -18,16 +18,8 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/types.h>
+
 #include <mt-plat/mtk_boot.h>
-
-#ifdef CONFIG_THUNDERCHARGE_CONTROL
-#include <linux/thundercharge_control.h>
-#endif
-
-#ifdef CONFIG_FORCE_FAST_CHARGE
-#include <linux/fastchg.h>
-#endif
-
 #include "mtk_charger_intf.h"
 #include "mtk_linear_charging.h"
 
@@ -58,80 +50,33 @@ linear_chg_select_charging_current_limit(struct charger_manager *info)
 	}
 
 	if (info->chr_type == STANDARD_HOST) {
-#ifdef CONFIG_THUNDERCHARGE_CONTROL
-                if (mswitch) {
-                        pdata->charging_current_limit =
-                                        custom_usb_current;
-#endif
-
-#if !defined(CONFIG_THUNDERCHARGE_CONTROL) && defined(CONFIG_FORCE_FAST_CHARGE)
-                if (force_fast_charge) {
-                        pdata->charging_current_limit = 900000;
-#elif defined(CONFIG_THUNDERCHARGE_CONTROL) && defined(CONFIG_FORCE_FAST_CHARGE)
-                } else if (force_fast_charge) {
-                        pdata->charging_current_limit = 900000;
-#endif
-
-#if defined(CONFIG_THUNDERCHARGE_CONTROL) || defined(CONFIG_FORCE_FAST_CHARGE)
-                } else {
-#endif
-                        if (IS_ENABLED(CONFIG_USBIF_COMPLIANCE)) {
-                                if (info->usb_state == USB_SUSPEND)
-                                        pdata->charging_current_limit =
-                                                info->data.usb_charger_current_suspend;
-                                else if (info->usb_state == USB_UNCONFIGURED)
-                                        pdata->charging_current_limit =
-                                        info->data.usb_charger_current_unconfigured;
-                                else if (info->usb_state == USB_CONFIGURED)
-                                        pdata->charging_current_limit =
-                                        info->data.usb_charger_current_configured;
-                                else
-                                        pdata->charging_current_limit =
-                                        info->data.usb_charger_current_unconfigured;
-                        } else {
-                                /* it can be larger */
-                                pdata->charging_current_limit =
-                                                        info->data.usb_charger_current;
-                        }
-#if defined(CONFIG_THUNDERCHARGE_CONTROL) || defined(CONFIG_FORCE_FAST_CHARGE)
-                }
-#endif
-	} else if (info->chr_type == NONSTANDARD_CHARGER) {
-#ifdef CONFIG_THUNDERCHARGE_CONTROL
-                if (mswitch) {
-                        pdata->charging_current_limit =
-                                        custom_ac_current;
-                } else {
-#endif
+		if (IS_ENABLED(CONFIG_USBIF_COMPLIANCE)) {
+			if (info->usb_state == USB_SUSPEND)
+				pdata->charging_current_limit =
+					info->data.usb_charger_current_suspend;
+			else if (info->usb_state == USB_UNCONFIGURED)
+				pdata->charging_current_limit =
+				info->data.usb_charger_current_unconfigured;
+			else if (info->usb_state == USB_CONFIGURED)
+				pdata->charging_current_limit =
+				info->data.usb_charger_current_configured;
+			else
+				pdata->charging_current_limit =
+				info->data.usb_charger_current_unconfigured;
+		} else {
+			/* it can be larger */
 			pdata->charging_current_limit =
-					info->data.non_std_ac_charger_current;
-#ifdef CONFIG_THUNDERCHARGE_CONTROL
-                }
-#endif
+					info->data.usb_charger_current;
+		}
+	} else if (info->chr_type == NONSTANDARD_CHARGER) {
+		pdata->charging_current_limit =
+				info->data.non_std_ac_charger_current;
 	} else if (info->chr_type == STANDARD_CHARGER) {
-#ifdef CONFIG_THUNDERCHARGE_CONTROL
-                if (mswitch) {
-                        pdata->charging_current_limit =
-                                        custom_ac_current;
-                } else {
-#endif
 		pdata->charging_current_limit =
 				info->data.ac_charger_current;
-#ifdef CONFIG_THUNDERCHARGE_CONTROL
-                }
-#endif
 	} else if (info->chr_type == CHARGING_HOST) {
-#ifdef CONFIG_THUNDERCHARGE_CONTROL
-                if (mswitch) {
-                        pdata->charging_current_limit =
-                                        custom_ac_current;
-                } else {
-#endif
-			pdata->charging_current_limit =
-					info->data.charging_host_charger_current;
-#ifdef CONFIG_THUNDERCHARGE_CONTROL
-                }
-#endif
+		pdata->charging_current_limit =
+				info->data.charging_host_charger_current;
 	} else if (info->chr_type == APPLE_1_0A_CHARGER) {
 		pdata->charging_current_limit =
 				info->data.apple_1_0a_charger_current;

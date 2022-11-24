@@ -17,16 +17,8 @@
 #include <linux/mutex.h>
 #include <linux/platform_device.h>
 #include <linux/power_supply.h>
+
 #include <mt-plat/mtk_boot.h>
-
-#ifdef CONFIG_THUNDERCHARGE_CONTROL
-#include <linux/thundercharge_control.h>
-#endif
-
-#ifdef CONFIG_FORCE_FAST_CHARGE
-#include <linux/fastchg.h>
-#endif
-
 #include "mtk_charger_intf.h"
 #include "mtk_dual_switch_charging.h"
 #include "mtk_charger_init.h"
@@ -324,176 +316,106 @@ dual_swchg_select_charging_current_limit(struct charger_manager *info)
 			info->data.pd_charger_current);
 
 	} else if (info->chr_type == STANDARD_HOST) {
-#ifdef CONFIG_THUNDERCHARGE_CONTROL
-                if (mswitch) {
-                        pdata->input_current_limit =
-                                        custom_usb_current;
-                        pdata->charging_current_limit =
-                                        custom_usb_current;
-#endif
+		if (IS_ENABLED(CONFIG_USBIF_COMPLIANCE)) {
+			if (info->usb_state == USB_SUSPEND)
+				pdata->input_current_limit =
+					info->data.usb_charger_current_suspend;
+			else if (info->usb_state == USB_UNCONFIGURED)
+				pdata->input_current_limit =
+				info->data.usb_charger_current_unconfigured;
+			else if (info->usb_state == USB_CONFIGURED)
+				pdata->input_current_limit =
+				info->data.usb_charger_current_configured;
+			else
+				pdata->input_current_limit =
+				info->data.usb_charger_current_unconfigured;
 
-#if !defined(CONFIG_THUNDERCHARGE_CONTROL) && defined(CONFIG_FORCE_FAST_CHARGE)
-                if (force_fast_charge) {
-                        pdata->input_current_limit = 900000;
-                        pdata->charging_current_limit = 900000;
-#elif defined(CONFIG_THUNDERCHARGE_CONTROL) && defined(CONFIG_FORCE_FAST_CHARGE)
-                } else if (force_fast_charge) {
-                        pdata->input_current_limit = 900000;
-                        pdata->charging_current_limit = 900000;
-#endif
-
-#if defined(CONFIG_THUNDERCHARGE_CONTROL) || defined(CONFIG_FORCE_FAST_CHARGE)
-                } else {
-#endif
-                        if (IS_ENABLED(CONFIG_USBIF_COMPLIANCE)) {
-                                if (info->usb_state == USB_SUSPEND)
-                                        pdata->input_current_limit =
-                                                info->data.usb_charger_current_suspend;
-                                else if (info->usb_state == USB_UNCONFIGURED)
-                                        pdata->input_current_limit =
-                                        info->data.usb_charger_current_unconfigured;
-                                else if (info->usb_state == USB_CONFIGURED)
-                                        pdata->input_current_limit =
-                                        info->data.usb_charger_current_configured;
-                                else
-                                        pdata->input_current_limit =
-                                        info->data.usb_charger_current_unconfigured;
-
-                                pdata->charging_current_limit =
-                                                        pdata->input_current_limit;
-                        } else {
-                                pdata->input_current_limit =
-                                                        info->data.usb_charger_current;
-                                /* it can be larger */
-                                pdata->charging_current_limit =
-                                                        info->data.usb_charger_current;
-                        }
-#if defined(CONFIG_THUNDERCHARGE_CONTROL) || defined(CONFIG_FORCE_FAST_CHARGE)
-                }
-#endif
-	} else if (info->chr_type == NONSTANDARD_CHARGER) {
-#ifdef CONFIG_THUNDERCHARGE_CONTROL
-		if (mswitch) {
-                        pdata->input_current_limit =
-                                        custom_ac_current;
-                        pdata->charging_current_limit =
-                                        custom_ac_current;
-		} else {
-#endif
-			pdata->input_current_limit =
-						info->data.non_std_ac_charger_current;
 			pdata->charging_current_limit =
-						info->data.non_std_ac_charger_current;
-#ifdef CONFIG_THUNDERCHARGE_CONTROL
+						pdata->input_current_limit;
+		} else {
+			pdata->input_current_limit =
+						info->data.usb_charger_current;
+			/* it can be larger */
+			pdata->charging_current_limit =
+						info->data.usb_charger_current;
 		}
-#endif
+	} else if (info->chr_type == NONSTANDARD_CHARGER) {
+		pdata->input_current_limit =
+					info->data.non_std_ac_charger_current;
+		pdata->charging_current_limit =
+					info->data.non_std_ac_charger_current;
 	} else if (info->chr_type == STANDARD_CHARGER) {
-#ifdef CONFIG_THUNDERCHARGE_CONTROL
-                if (mswitch) {
-                        pdata->charging_current_limit =
-                                        custom_ac_current;
-                        pdata->input_current_limit =
-                                        custom_ac_current;
+		if (timespec_compare(&now, &info->plugintime) >= 0) {
+			pdata->charging_current_limit =
+					info->data.ac_charger_current;
+			pdata->input_current_limit =
+					info->data.ac_charger_input_current;
+		} else {
+			pdata->charging_current_limit = 1000000;
+			pdata->input_current_limit = 1600000;
+		}
+		mtk_pe20_set_charging_current(info,
+					&pdata->charging_current_limit,
+					&pdata->input_current_limit);
+		mtk_pe_set_charging_current(info,
+					&pdata->charging_current_limit,
+					&pdata->input_current_limit);
 
-                        mtk_pe20_set_charging_current(info,
-                                                &custom_ac_current,
-                                                &custom_ac_current);
-                        mtk_pe_set_charging_current(info,
-                                                &custom_ac_current,
-                                                &custom_ac_current);
+		pdata2->input_current_limit =
+					info->data.chg2_ta_ac_charger_input_current * 2;
 
-                        pdata2->input_current_limit =
-                                                custom_ac_current;
-                        pdata2->charging_current_limit =
-                                                custom_ac_current;
+		/* Only enable slave charger when PE+/PE+2.0/QC/QC3 is connected */
+		if (((mtk_pe20_get_is_enable(info) && mtk_pe20_get_is_connect(info))
+			|| (mtk_pe_get_is_enable(info) && mtk_pe_get_is_connect(info))
+			|| info->hvdcp_type == HVDCP_3
+			|| ((swchgalg->vbus_mv > HVDCP2P0_VOLATGE) && (info->hvdcp_type == HVDCP)))
+			&& info->swjeita_enable_dual_charging) {
 
-                } else {
-#endif
-                        if (timespec_compare(&now, &info->plugintime) >= 0) {
-                                pdata->charging_current_limit =
-                                                info->data.ac_charger_current;
-                                pdata->input_current_limit =
-                                                info->data.ac_charger_input_current;
-                        } else {
-                                pdata->charging_current_limit = 1000000;
-                                pdata->input_current_limit = 1600000;
-                        }
+			pdata->input_current_limit =
+					info->data.chg1_ta_ac_charger_input_current * 2;
+			pdata2->input_current_limit =
+					info->data.chg2_ta_ac_charger_input_current * 2;
 
-                        mtk_pe20_set_charging_current(info,
-                                                &pdata->charging_current_limit,
-                                                &pdata->input_current_limit);
-                        mtk_pe_set_charging_current(info,
-                                                &pdata->charging_current_limit,
-                                                &pdata->input_current_limit);
+			if ((swchgalg->vbus_mv > HVDCP2P0_VOLATGE) &&
+					(info->hvdcp_type == HVDCP)) {
+				pdata->input_current_limit = HVDCP_INPUT_CURRENT_LIMIT;
+				pdata2->input_current_limit = HVDCP_INPUT_CURRENT_LIMIT;
+			} else if ((mtk_pe20_get_is_enable(info) && mtk_pe20_get_is_connect(info))
+				|| (mtk_pe_get_is_enable(info) && mtk_pe_get_is_connect(info))) {
+				pdata->input_current_limit = CHG1_INPUT_CURRENT_LIMIT_PE;
+				pdata2->input_current_limit = CHG2_INPUT_CURRENT_LIMIT_PE;
+			}
 
-                        pdata2->input_current_limit =
-                                                info->data.chg2_ta_ac_charger_input_current * 2;
+			switch (swchgalg->state) {
+			case CHR_CC:
+				pdata->charging_current_limit
+					= info->data.chg1_ta_ac_charger_current;
+				pdata2->charging_current_limit
+					= info->data.chg2_ta_ac_charger_current;
+				if (info->wireless_status == WIRELESS_CHG_HVDCP ||
+					((swchgalg->vbus_mv > HVDCP2P0_VOLATGE) &&
+					(info->hvdcp_type == HVDCP))) {
+					//wireless hvdcp support 9V/1.5A,set total current 2.4A
+					pdata->charging_current_limit
+						= WIRELESS_HVDCP_CHG_CURRENT;
+					pdata2->charging_current_limit
+						= WIRELESS_HVDCP_CHG_CURRENT;
+				}
+				break;
+			case CHR_TUNING:
+				pdata->charging_current_limit
+					= info->data.chg1_ta_ac_charger_current;
+				break;
+			default:
+				break;
+			}
+		}
 
-                        /* Only enable slave charger when PE+/PE+2.0/QC/QC3 is connected */
-                        if (((mtk_pe20_get_is_enable(info) && mtk_pe20_get_is_connect(info))
-                                || (mtk_pe_get_is_enable(info) && mtk_pe_get_is_connect(info))
-                                || info->hvdcp_type == HVDCP_3
-                                || ((swchgalg->vbus_mv > HVDCP2P0_VOLATGE) && (info->hvdcp_type == HVDCP)))
-                                && info->swjeita_enable_dual_charging) {
-
-                                pdata->input_current_limit =
-                                                info->data.chg1_ta_ac_charger_input_current * 2;
-                                pdata2->input_current_limit =
-                                                info->data.chg2_ta_ac_charger_input_current * 2;
-
-                                if ((swchgalg->vbus_mv > HVDCP2P0_VOLATGE) &&
-                                                (info->hvdcp_type == HVDCP)) {
-                                        pdata->input_current_limit = HVDCP_INPUT_CURRENT_LIMIT;
-                                        pdata2->input_current_limit = HVDCP_INPUT_CURRENT_LIMIT;
-                                } else if ((mtk_pe20_get_is_enable(info) && mtk_pe20_get_is_connect(info))
-                                        || (mtk_pe_get_is_enable(info) && mtk_pe_get_is_connect(info))) {
-                                        pdata->input_current_limit = CHG1_INPUT_CURRENT_LIMIT_PE;
-                                        pdata2->input_current_limit = CHG2_INPUT_CURRENT_LIMIT_PE;
-                                }
-
-                                switch (swchgalg->state) {
-                                case CHR_CC:
-                                        pdata->charging_current_limit
-                                                = info->data.chg1_ta_ac_charger_current;
-                                        pdata2->charging_current_limit
-                                                = info->data.chg2_ta_ac_charger_current;
-                                        if (info->wireless_status == WIRELESS_CHG_HVDCP ||
-                                                ((swchgalg->vbus_mv > HVDCP2P0_VOLATGE) &&
-                                                (info->hvdcp_type == HVDCP))) {
-                                                //wireless hvdcp support 9V/1.5A,set total current 2.4A
-                                                pdata->charging_current_limit
-                                                        = WIRELESS_HVDCP_CHG_CURRENT;
-                                                pdata2->charging_current_limit
-                                                        = WIRELESS_HVDCP_CHG_CURRENT;
-                                        }
-                                        break;
-                                case CHR_TUNING:
-                                        pdata->charging_current_limit
-                                                = info->data.chg1_ta_ac_charger_current;
-                                        break;
-                                default:
-                                        break;
-                                }
-                        }
-#ifdef CONFIG_THUNDERCHARGE_CONTROL
-                }
-#endif
 	} else if (info->chr_type == CHARGING_HOST) {
-#ifdef CONFIG_THUNDERCHARGE_CONTROL
-                if (mswitch) {
-                        pdata->input_current_limit =
-                                        custom_ac_current;
-                        pdata->charging_current_limit =
-                                        custom_ac_current;
-                } else {
-#endif
-                        pdata->input_current_limit =
-                                        info->data.charging_host_charger_current;
-                        pdata->charging_current_limit =
-                                        info->data.charging_host_charger_current;
-#ifdef CONFIG_THUNDERCHARGE_CONTROL
-                }
-#endif
+		pdata->input_current_limit =
+				info->data.charging_host_charger_current;
+		pdata->charging_current_limit =
+				info->data.charging_host_charger_current;
 	} else if (info->chr_type == APPLE_1_0A_CHARGER) {
 		pdata->input_current_limit =
 				info->data.apple_1_0a_charger_current;
