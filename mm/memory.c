@@ -1336,17 +1336,6 @@ int copy_page_range(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 	return ret;
 }
 
-/* Whether we should zap all COWed (private) pages too */
-static inline bool should_zap_cows(struct zap_details *details)
-{
-	/* By default, zap all pages */
-	if (!details)
-		return true;
-
-	/* Or, we zap COWed pages only if the caller wants to */
-	return !details->check_mapping;
-}
-
 static unsigned long zap_pte_range(struct mmu_gather *tlb,
 				struct vm_area_struct *vma, pmd_t *pmd,
 				unsigned long addr, unsigned long end,
@@ -1435,19 +1424,17 @@ again:
 			continue;
 		}
 
+		/* If details->check_mapping, we leave swap entries. */
+		if (unlikely(details))
+			continue;
+
 		entry = pte_to_swp_entry(ptent);
-		if (!non_swap_entry(entry)) {
-			/* Genuine swap entry, hence a private anon page */
-			if (!should_zap_cows(details))
-				continue;
+		if (!non_swap_entry(entry))
 			rss[MM_SWAPENTS]--;
-		} else if (is_migration_entry(entry)) {
+		else if (is_migration_entry(entry)) {
 			struct page *page;
 
 			page = migration_entry_to_page(entry);
-			if (details && details->check_mapping &&
-			    details->check_mapping != page_rmapping(page))
-				continue;
 			rss[mm_counter(page)]--;
 		}
 		if (unlikely(!free_swap_and_cache(entry)))
@@ -3573,16 +3560,11 @@ static int __do_fault(struct vm_fault *vmf)
 		return ret;
 
 	if (unlikely(PageHWPoison(vmf->page))) {
-		int poisonret = VM_FAULT_HWPOISON;
-		if (ret & VM_FAULT_LOCKED) {
-			/* Retry if a clean page was removed from the cache. */
-			if (invalidate_inode_page(vmf->page))
-				poisonret = 0;
+		if (ret & VM_FAULT_LOCKED)
 			unlock_page(vmf->page);
-		}
 		put_page(vmf->page);
 		vmf->page = NULL;
-		return poisonret;
+		return VM_FAULT_HWPOISON;
 	}
 
 	if (unlikely(!(ret & VM_FAULT_LOCKED)))
@@ -3790,6 +3772,10 @@ int alloc_set_pte(struct vm_fault *vmf, struct mem_cgroup *memcg,
 	entry = mk_pte(page, vmf->vma_page_prot);
 	if (write)
 		entry = maybe_mkwrite(pte_mkdirty(entry), vmf->vma_flags);
+
+	if (vmf->flags & FAULT_FLAG_PREFAULT_OLD)
+		entry = pte_mkold(entry);
+
 	/* copy-on-write page */
 	if (write && !(vmf->vma_flags & VM_SHARED)) {
 		inc_mm_counter_fast(vma->vm_mm, MM_ANONPAGES);
@@ -3848,8 +3834,16 @@ int finish_fault(struct vm_fault *vmf)
 	return ret;
 }
 
+/*
+ * If architecture emulates "accessed" or "young" bit without HW support,
+ * there is no much gain with fault_around.
+ */
 static unsigned long fault_around_bytes __read_mostly =
+#ifndef __HAVE_ARCH_PTEP_SET_ACCESS_FLAGS
+	PAGE_SIZE;
+#else
 	rounddown_pow_of_two(65536);
+#endif
 
 #ifdef CONFIG_DEBUG_FS
 static int fault_around_bytes_get(void *data, u64 *val)
@@ -5363,8 +5357,6 @@ long copy_huge_page_from_user(struct page *dst_page,
 		ret_val -= (PAGE_SIZE - rc);
 		if (rc)
 			break;
-
-		flush_dcache_page(subpage);
 
 		cond_resched();
 	}

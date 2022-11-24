@@ -1199,7 +1199,8 @@ static void affine_one_perf_thread(struct irqaction *action)
 	if (!action->thread)
 		return;
 
-	mask = cpu_perf_mask;
+	if (action->flags & IRQF_PERF_AFFINE)
+		mask = cpu_perf_mask;
 
 	action->thread->flags |= PF_PERF_CRITICAL;
 	set_cpus_allowed_ptr(action->thread, mask);
@@ -1220,8 +1221,10 @@ static void affine_one_perf_irq(struct irq_desc *desc, unsigned int perf_flag)
 	int *mask_index;
 	int cpu;
 
-	mask = cpu_perf_mask;
-	mask_index = &perf_cpu_index;
+	if (perf_flag & IRQF_PERF_AFFINE) {
+		mask = cpu_perf_mask;
+		mask_index = &perf_cpu_index;
+	}
 
 	if (!cpumask_intersects(mask, cpu_online_mask)) {
 		WARN(1, "requested perf CPU is offline for %s\n", desc->name);
@@ -1565,7 +1568,7 @@ __setup_irq(unsigned int irq, struct irq_desc *desc, struct irqaction *new)
 			irqd_set(&desc->irq_data, IRQD_NO_BALANCING);
 		}
 
-		if (new->flags & IRQF_PERF_AFFINE) {
+		if (new->flags & (IRQF_PERF_AFFINE)) {
 			affine_one_perf_thread(new);
 			irqd_set(&desc->irq_data, IRQD_PERF_CRITICAL);
 			*old_ptr = new;
