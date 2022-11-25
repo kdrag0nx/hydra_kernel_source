@@ -114,3 +114,4 @@ obj-$(CONFIG_HMM) += hmm.o
 obj-$(CONFIG_PROCESS_RECLAIM)   += process_reclaim.o
 
 CFLAGS_kmemleak.o += -DCONFIG_DEBUG_FS
+obj-$(CONFIG_DAMON) += damon/

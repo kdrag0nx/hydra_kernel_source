@@ -28,6 +28,7 @@
 #ifndef _KBASE_JM_JS_H_
 #define _KBASE_JM_JS_H_
 
+#include <linux/pm_qos.h>
 #include "mali_kbase_js_ctx_attr.h"
 
 /**
@@ -584,7 +585,6 @@ void kbase_js_set_timeouts(struct kbase_device *kbdev);
  */
 void kbase_js_set_ctx_priority(struct kbase_context *kctx, int new_priority);
 
-
 /**
  * kbase_js_update_ctx_priority - update the context priority
  *
@@ -837,7 +837,16 @@ static inline void kbase_js_runpool_dec_context_count(
  */
 static inline void kbase_js_sched_all(struct kbase_device *kbdev)
 {
+	struct pm_qos_request req = {
+		.type = PM_QOS_REQ_AFFINE_CORES,
+		.cpus_affine = ATOMIC_INIT(BIT(raw_smp_processor_id()))
+	};
+
+	pm_qos_add_request(&req, PM_QOS_CPU_DMA_LATENCY, 100);
 	kbase_js_sched(kbdev, (1 << kbdev->gpu_props.num_job_slots) - 1);
+	pm_qos_remove_request(&req);
+
+	return;
 }
 
 extern const int

@@ -25,11 +25,23 @@ extern unsigned int sysctl_sched_sync_hint_enable;
 extern unsigned int sysctl_sched_cstate_aware;
 extern unsigned int sysctl_sched_wakeup_granularity;
 extern unsigned int sysctl_sched_child_runs_first;
+extern unsigned int sysctl_sched_capacity_margin_up;
+extern unsigned int sysctl_sched_capacity_margin_down;
 #ifdef CONFIG_SCHED_WALT
 extern unsigned int sysctl_sched_use_walt_cpu_util;
 extern unsigned int sysctl_sched_use_walt_task_util;
 extern unsigned int sysctl_sched_walt_init_task_load_pct;
-extern unsigned int sysctl_sched_walt_cpu_high_irqload;
+extern unsigned int sysctl_sched_cpu_high_irqload;
+extern unsigned int sysctl_sched_boost;
+extern unsigned int sysctl_sched_group_upmigrate_pct;
+extern unsigned int sysctl_sched_group_downmigrate_pct;
+extern unsigned int sysctl_sched_walt_rotate_big_tasks;
+
+extern int
+walt_proc_update_handler(struct ctl_table *table, int write,
+			 void __user *buffer, size_t *lenp,
+			 loff_t *ppos);
+
 #endif
 #ifdef CONFIG_MTK_SCHED_BOOST
 extern unsigned int sysctl_sched_isolation_hint_enable;
@@ -59,6 +71,9 @@ int sched_proc_update_handler(struct ctl_table *table, int write,
 		void __user *buffer, size_t *length,
 		loff_t *ppos);
 #endif
+
+extern int sched_boost_handler(struct ctl_table *table, int write,
+			void __user *buffer, size_t *lenp, loff_t *ppos);
 
 /*
  *  control realtime throttling:
@@ -106,6 +121,10 @@ extern int sched_uclamp_handler(struct ctl_table *table, int write,
 				loff_t *ppos);
 #endif
 
+extern int sched_updown_migrate_handler(struct ctl_table *table,
+					int write, void __user *buffer,
+					size_t *lenp, loff_t *ppos);
+
 extern int sysctl_numa_balancing(struct ctl_table *table, int write,
 				 void __user *buffer, size_t *lenp,
 				 loff_t *ppos);
@@ -113,10 +132,5 @@ extern int sysctl_numa_balancing(struct ctl_table *table, int write,
 extern int sysctl_schedstats(struct ctl_table *table, int write,
 				 void __user *buffer, size_t *lenp,
 				 loff_t *ppos);
-
-#define LIB_PATH_LENGTH 512
-extern char sched_lib_name[LIB_PATH_LENGTH];
-extern unsigned int sched_lib_mask_force;
-extern bool is_sched_lib_based_app(pid_t pid);
 
 #endif /* _LINUX_SCHED_SYSCTL_H */

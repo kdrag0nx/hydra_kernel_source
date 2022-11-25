@@ -809,6 +809,7 @@ config PERCPU_STATS
 	  information includes global and per chunk statistics, which can
 	  be used to help understand percpu memory usage.
 
+<<<<<<< Updated upstream
 config HAVE_LOW_MEMORY_KILLER
 	bool "Have user/kernel space low memory killer"
 	default n
@@ -832,3 +833,6 @@ config PROCESS_RECLAIM
 	 (addr, addr + size-bytes) of the process.
 
 	 Any other value is ignored.
+=======
+source "mm/damon/Kconfig"
+>>>>>>> Stashed changes

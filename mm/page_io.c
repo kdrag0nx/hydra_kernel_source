@@ -72,6 +72,22 @@ void end_swap_bio_write(struct bio *bio)
 	bio_put(bio);
 }
 
+/* Moto huangzq2: check sync_io state on swap entry */
+bool swap_slot_has_sync_io(swp_entry_t entry)
+{
+	struct swap_info_struct *sis;
+	struct gendisk *disk;
+
+	sis = swp_swap_info(entry);
+	disk = sis->bdev->bd_disk;
+	if (disk->fops->ioctl) {
+		return disk->fops->ioctl(sis->bdev, 0,
+			SWP_SYNCHRONOUS_IO, swp_offset(entry)) == 1;
+	}
+
+	return ((sis->flags & SWP_SYNCHRONOUS_IO) == SWP_SYNCHRONOUS_IO);
+}
+
 static void swap_slot_free_notify(struct page *page)
 {
 	struct swap_info_struct *sis;
@@ -177,8 +193,9 @@ int generic_swapfile_activate(struct swap_info_struct *sis,
 
 		cond_resched();
 
-		first_block = bmap(inode, probe_block);
-		if (first_block == 0)
+		first_block = probe_block;
+		ret = bmap(inode, &first_block);
+		if (ret || !first_block)
 			goto bad_bmap;
 
 		/*
@@ -193,9 +210,11 @@ int generic_swapfile_activate(struct swap_info_struct *sis,
 					block_in_page++) {
 			sector_t block;
 
-			block = bmap(inode, probe_block + block_in_page);
-			if (block == 0)
+			block = probe_block + block_in_page;
+			ret = bmap(inode, &block);
+			if (ret || !block)
 				goto bad_bmap;
+
 			if (block != first_block + block_in_page) {
 				/* Discontiguity */
 				probe_block++;
@@ -352,7 +371,7 @@ out:
 	return ret;
 }
 
-int swap_readpage(struct page *page, bool do_poll)
+int swap_readpage(struct page *page, bool synchronous)
 {
 	struct bio *bio;
 	int ret = 0;
@@ -360,8 +379,9 @@ int swap_readpage(struct page *page, bool do_poll)
 	blk_qc_t qc;
 	struct gendisk *disk;
 	unsigned long pflags;
+	swp_entry_t entry;
 
-	VM_BUG_ON_PAGE(!PageSwapCache(page), page);
+	VM_BUG_ON_PAGE(!PageSwapCache(page) && !synchronous, page);
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
 	VM_BUG_ON_PAGE(PageUptodate(page), page);
 
@@ -392,17 +412,26 @@ int swap_readpage(struct page *page, bool do_poll)
 		goto out;
 	}
 
-	ret = bdev_read_page(sis->bdev, map_swap_page(page, &sis->bdev), page);
-	if (!ret) {
-		if (trylock_page(page)) {
-			swap_slot_free_notify(page);
-			unlock_page(page);
-		}
+	/* Moto huangzq2: Use rw_page for zram page but submit_bio for zram wb page.
+	 * Since reading zram wb page is an async operation, we can not immediately
+	 * free the slot here. So we need to read the page via submit_bio and free
+	 * the slot in end_swap_bio_read. (bio chain will be used to handle bio here
+	 * and bio in zram driver for wb page).
+	 */
+	entry.val = page_private(page);
+	if (swap_slot_has_sync_io(entry)) {
+		ret = bdev_read_page(sis->bdev, map_swap_page(page, &sis->bdev), page);
+		if (!ret) {
+			if (trylock_page(page)) {
+				swap_slot_free_notify(page);
+				unlock_page(page);
+			}
 #ifdef CONFIG_MTK_MLOG
-		current->swap_in++;
+			current->swap_in++;
 #endif
-		count_vm_event(PSWPIN);
-		goto out;
+			count_vm_event(PSWPIN);
+			goto out;
+		}
 	}
 
 	ret = 0;
@@ -426,7 +455,7 @@ int swap_readpage(struct page *page, bool do_poll)
 	count_vm_event(PSWPIN);
 	bio_get(bio);
 	qc = submit_bio(bio);
-	while (do_poll) {
+	while (synchronous) {
 		set_current_state(TASK_UNINTERRUPTIBLE);
 		if (!READ_ONCE(bio->bi_private))
 			break;
